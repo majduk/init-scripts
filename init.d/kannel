@@ -1,0 +1,170 @@
+#!/bin/sh
+#
+# chkconfig:    2345 97 03
+# description:  Kannel SMS/WAP gateway
+
+
+# Source function library.
+. /etc/rc.d/init.d/functions
+
+# Source networking configuration.
+. /etc/sysconfig/network
+
+# Check that networking is up.
+if [ ${NETWORKING} = "no" ] ; then
+        exit 1
+fi
+
+RETVAL=0
+
+SHAREDDIR=/data/shared/kannel
+PRIVATEDIR=/data/private/`hostname`/kannel
+LOGDIR=$SHAREDDIR/log
+PIDDIR=/var/run
+LOCKFILE=/var/lock/kannel.lock
+
+bearerbox=$PRIVATEDIR/sbin/bearerbox
+smsbox=$PRIVATEDIR/sbin/smsbox
+
+bearerbox_conf=$SHAREDDIR/etc/kannel.conf
+smsbox_conf=$SHAREDDIR/etc/kannel.conf
+
+getlock() {
+    while [ -f "$LOCKFILE" ]; do
+      sleep 0.4
+    done
+    touch "$LOCKFILE";
+}
+
+releaselock ()
+{
+  if [ -f "$LOCKFILE" ];then
+    rm -f "$LOCKFILE";
+  fi
+}
+
+start() {
+  RETVAL=1
+  for tmp in bearerbox smsbox; do
+    if [ "$1" = "$tmp" ];then
+      box=$tmp;
+    fi
+  done
+
+  if [ "$box" != "" ];then
+     eval prog=\$$box
+     eval conf="\$"$box"_conf"
+     echo -n "Starting kannel $box: ";
+     getlock;
+     if [ -f $PIDDIR/$box.pid ];then
+        fpid=`cat $PIDDIR/$box.pid`;
+        checkpid $fpid;
+        RETVAL=$?;
+        [ $RETVAL -eq 1 ] && rm -f $PIDDIR/$box.pid;
+     fi
+     daemon --check $PIDDIR/$box.pid --pidfile $PIDDIR/$box.pid $prog --pid-file $PIDDIR/$box.pid -F $LOGDIR/"$box"_`hostname`.log -d $conf;
+     echo
+     status $box;
+           RETVAL=$?;
+           [ $RETVAL -eq 0 ] && touch /var/lock/subsys/kannel
+           releaselock;
+  fi
+}
+
+stop() {
+  RETVAL=1
+  for tmp in bearerbox smsbox; do
+    if [ "$1" = "$tmp" ];then
+      box=$tmp;
+    fi
+  done
+
+  if [ "$box" != "" ];then
+      echo -n "Shutting down $box: ";
+      getlock;
+        killproc $box;
+        echo
+           RETVAL=$?
+           [ $RETVAL -eq 0 ] && rm -f /var/lock/subsys/kannel
+           releaselock;
+  fi
+}
+
+reload() {
+  RETVAL=1
+  for tmp in bearerbox smsbox; do
+    if [ "$1" = "$tmp" ];then
+      box=$tmp;
+    fi
+  done
+
+  if [ "$box" != "" ];then
+      echo -n "Reloading $box: ";
+        killproc $box -HUP
+        echo
+           RETVAL=$?
+  fi
+}
+
+status_box()
+{
+  RETVAL=1
+  for tmp in bearerbox smsbox; do
+    if [ "$1" = "$tmp" ];then
+      box=$tmp;
+    fi
+  done
+
+  if [ "$box" != "" ];then
+     status $box
+           RETVAL=$?
+  fi
+}
+
+# See how we were called.
+case "$1" in
+        start)
+          if [ "$2" = "" ];then
+      $0 start bearerbox ;
+      sleep 2;
+      $0 start smsbox ;
+    else
+      start $2;
+    fi
+    ;;
+
+        stop)
+          if [ "$2" = "" ];then
+      $0 stop smsbox ;
+      sleep 2;
+      $0 stop bearerbox ;
+    else
+      stop $2;
+    fi
+    ;;
+
+  status)
+          if [ "$2" = "" ];then
+      $0 status bearerbox ;
+      $0 status smsbox ;
+    else
+      status_box $2;
+    fi
+    ;;
+
+  restart)
+  if [ "$2" = "" ];then
+         $0 stop
+         $0 start
+        else
+         stop $2;
+         start $2;
+        RETVAL=$?
+        fi
+        ;;
+  *)
+        echo "Usage: $0 {start|stop|status|restart|reload} [bearerbox|smsbox]"
+        exit 1
+esac
+
+exit $RETVAL
