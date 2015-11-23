@@ -1,0 +1,83 @@
+#!/bin/bash
+# chkconfig: 2345 64 36
+# description: GlassFish is a Java Application Server.
+# processname: glassfish
+# pidfile: /var/run/glassfish.pid
+
+# filename glassfish
+
+# source function library
+. /etc/init.d/functions
+
+RETVAL=0
+GLASSFISH_BIN="/opt/glassfish3/bin"
+PASSWORDPATH="/opt/glassfish3/domains/dsss/config/startup-password"
+GFUSER="glassfish"
+
+# Basename works with symbolic links.
+NAME="$(basename $0)"
+unset ISBOOT
+# Trim off the Sxx/Kxx prefix
+if [ "${NAME:0:1}" = "S" -o "${NAME:0:1}" = "K" ]; then
+NAME="${NAME:3}"
+ISBOOT="1"
+fi
+# Trim off the glassfish- prefix
+NAME=${NAME:10}
+# /etc/init.d/glassfish should never be called directly.
+if [ -z $NAME ]; then
+echo -n $"Cannot start Glassfish without specifying a domain."
+failure
+echo
+exit 1
+fi
+
+NAME="domain-$NAME"
+start() {
+echo -n $"Starting Glassfish V2 domain $NAME: "
+daemon --user $GFUSER --pidfile /var/run/glassfish-$NAME.pid "$GLASSFISH_BIN/asadmin start-domain $NAME"
+RETVAL=$?
+if [ $RETVAL -eq 0 ]; then
+PID=`ps U $GFUSER | grep $NAME | awk '{ print $1}'`
+echo $PID > /var/run/glassfish-$NAME.pid
+touch /var/lock/subsys/glassfish-$NAME
+fi
+echo
+}
+stop() {
+echo -n $"Shutting down Glassfish V2 domain $NAME: "
+$GLASSFISH_BIN/asadmin stop-domain $NAME
+RETVAL=$?
+[ $RETVAL -eq 0 ]
+rm -f /var/lock/subsys/glassfish-$NAME
+rm -f /var/run/glassfish-$NAME.pid success || failure
+echo
+}
+
+case "$1" in
+start)
+start
+;;
+stop)
+stop
+;;
+restart|reload)
+stop
+start
+;;
+condrestart)
+if [ -f /var/lock/subsys/glassfish-$NAME ]; then
+stop
+start
+fi
+;;
+status)
+status glassfish-$NAME
+RETVAL=$?
+;;
+*)
+echo $"Usage: $0 {start|stop|restart|condrestart|status}"
+exit 1
+esac
+
+exit $RETVAL
